@@ -1,0 +1,107 @@
+(ns mailrouting.governor-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [mailrouting.store :as store]
+            [mailrouting.governor :as governor]))
+
+(defn- fresh-store []
+  (let [st (store/mem-store)]
+    (store/register-client! st {:client-id "client-1" :name "Acme Co-op Delivery"})
+    (store/register-item! st {:item-id "I-1" :client-id "client-1"
+                               :address-on-file "1 Main St" :protected? false})
+    (store/register-item! st {:item-id "I-2" :client-id "client-1"
+                               :address-on-file "9 Court Way" :protected? true})
+    st))
+
+(def ^:private req {:client-id "client-1" :item-id "I-1"})
+(def ^:private protected-req {:client-id "client-1" :item-id "I-2"})
+
+(defn- op [op-kw & {:as extra}]
+  (merge {:op op-kw :effect :propose :confidence 0.9 :stake :low} extra))
+
+(deftest ok-on-clean-sort
+  (let [st (fresh-store)
+        v (governor/check req {} (op :sort-item) st)]
+    (is (:ok? v))
+    (is (not (:hard? v)))
+    (is (not (:escalate? v)))))
+
+(deftest ok-on-clean-route-and-hold-and-flag-and-return
+  (let [st (fresh-store)]
+    (doseq [op-kw [:route-item :hold-for-pickup :flag-undeliverable :return-to-sender]]
+      (is (:ok? (governor/check req {} (op op-kw) st))
+          (str op-kw " should be routine and clean")))))
+
+(deftest hard-on-unregistered-client
+  (let [st (fresh-store)
+        v (governor/check {:client-id "no-such-client" :item-id "I-1"} {} (op :sort-item) st)]
+    (is (:hard? v))
+    (is (some #(= :no-client (:rule %)) (:violations v)))))
+
+(deftest hard-on-item-without-verified-manifest
+  (testing "an item with no store entry has no verified tracking/manifest record"
+    (let [st (fresh-store)
+          v (governor/check {:client-id "client-1" :item-id "I-ghost"} {} (op :sort-item) st)]
+      (is (:hard? v))
+      (is (some #(= :no-manifest (:rule %)) (:violations v))))))
+
+(deftest hard-on-no-actuation-violation
+  (let [st (fresh-store)
+        v (governor/check req {} (op :sort-item :effect :direct-actuate) st)]
+    (is (:hard? v))
+    (is (some #(= :no-actuation (:rule %)) (:violations v)))))
+
+(deftest hard-on-protected-class-redirect-even-at-high-confidence
+  (testing "protected-class mail may never be autonomously rerouted, never overridable"
+    (let [st (fresh-store)
+          v (governor/check protected-req {}
+                             (op :redirect-mail :redirect-to-address "2 Elsewhere Ave" :confidence 0.99)
+                             st)]
+      (is (:hard? v))
+      (is (not (:escalate? v)))
+      (is (some #(= :protected-class-no-redirect (:rule %)) (:violations v))))))
+
+(deftest hard-on-protected-class-dispose-even-at-high-confidence
+  (testing "protected-class mail may never be autonomously disposed, never overridable"
+    (let [st (fresh-store)
+          v (governor/check protected-req {} (op :dispose-item :confidence 0.99) st)]
+      (is (:hard? v))
+      (is (not (:escalate? v)))
+      (is (some #(= :protected-class-no-dispose (:rule %)) (:violations v))))))
+
+(deftest escalates-on-redirect-to-different-address
+  (testing "redirecting to an address different from the one on file is an identity/fraud risk"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                             (op :redirect-mail :redirect-to-address "2 Elsewhere Ave" :confidence 0.99)
+                             st)]
+      (is (not (:hard? v)))
+      (is (:escalate? v)))))
+
+(deftest ok-on-redirect-to-same-address-on-file
+  (testing "a redirect target matching the address on file is not a risky reroute"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                             (op :redirect-mail :redirect-to-address "1 Main St" :confidence 0.9)
+                             st)]
+      (is (:ok? v))
+      (is (not (:escalate? v))))))
+
+(deftest always-escalates-dispose-item-even-at-high-confidence
+  (testing "disposal of an unclaimed item is an irreversible loss of property"
+    (let [st (fresh-store)
+          v (governor/check req {} (op :dispose-item :confidence 0.99) st)]
+      (is (not (:hard? v)))
+      (is (:escalate? v)))))
+
+(deftest escalates-on-low-confidence
+  (let [st (fresh-store)
+        v (governor/check req {} (op :sort-item :confidence 0.2) st)]
+    (is (not (:hard? v)))
+    (is (:escalate? v))))
+
+(deftest store-records-and-ledger-append-only
+  (let [st (fresh-store)]
+    (store/commit-record! st {:client-id "client-1" :item-id "I-1" :op :sort-item})
+    (store/append-ledger! st {:disposition :commit})
+    (is (= 1 (count (store/records-of st "client-1"))))
+    (is (= 1 (count (store/ledger st))))))
