@@ -1,0 +1,32 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:physics` runs it.
+;;
+;; README "Robotics premise": a sorting and local-delivery robot performs
+;; mail sorting by route and last-mile delivery drop-off. Declared here: a
+;; full letter tray lifted into the route sorting frame, and the sidewalk
+;; delivery leg from the depot to a drop-off point.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isco-4412"
+ :cases
+ [{:id :letter-tray-to-sort-frame
+   :kind :manipulator
+   :procedure "arm lifts a full letter tray from the intake conveyor into the route sorting frame"
+   :params {:l1-m 0.50 :l2-m 0.45 :m1-kg 4.5 :m2-kg 3.0 :payload-kg 6.0
+            :from [0.55 0.00] :to [0.30 0.60] :steps 500}
+   :sweep {:param :duration-s :values [0.6 0.9 1.2 1.8 2.5]}
+   :quantity :peak-tau1-nm
+   :limit {:max 90.0 :basis "estimate: continuous shoulder torque of a ~10 kg-payload collaborative arm"}
+   :boundary {:lo 0.3 :hi 4.0}}
+  {:id :sidewalk-delivery-leg
+   :kind :transport
+   :procedure "sidewalk delivery robot carries the route's parcels from the depot to a drop-off point"
+   :params {:mass-kg 50.0 :payload-kg 15.0 :v-max-mps 1.5 :a-max-mps2 0.5
+            :brake-decel-mps2 1.0 :drive-force-n 150.0 :crr 0.02
+            :cog-height-m 0.45 :support-half-length-m 0.30 :max-time-s 3600.0}
+   :sweep {:param :distance-m :values [200.0 500.0 1000.0 1500.0 2500.0]}
+   :quantity :cycle-time-s
+   :limit {:max 1200.0 :basis "estimate: a 20-minute leg so a route of drop-offs fits inside one delivery round"}
+   :boundary {:lo 50.0 :hi 5000.0}}]}
