@@ -1,5 +1,5 @@
 (ns mailrouting.actor-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [mailrouting.actor :as actor]
             [mailrouting.store :as store]))
 
