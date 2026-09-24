@@ -1,5 +1,5 @@
 (ns mailrouting.governor-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [mailrouting.store :as store]
             [mailrouting.governor :as governor]))
 
