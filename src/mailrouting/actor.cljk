@@ -1,7 +1,7 @@
 (ns mailrouting.actor
   "MailRoutingActor — the ISCO-08 4412 independent mail sorting &
   delivery actor as a `langgraph.graph/state-graph` (per
-  ADR-2607011000 / CLAUDE.md Actors section). One graph run = one
+  ADR-2607011000 / AGENTS.md Actors section). One graph run = one
   mail-handling operation request (intake → advise → govern → decide
   → commit/hold, with a human-approval interrupt for escalated
   proposals). No infinite internal loop; checkpointed per superstep so
